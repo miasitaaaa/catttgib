@@ -1,15 +1,44 @@
-name: Upload Image to GitHub
+name: Handle Image Upload
 
 on:
-  repository_dispatch:
-    types: [upload-request]
+  workflow_dispatch:
+    inputs:
+      image_data:
+        description: 'Base64 image data'
+        required: true
+      filename:
+        description: 'Filename'
+        required: true
+      album:
+        description: 'Album name'
+        required: false
 
 jobs:
-  upload:
+  process-upload:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Upload file
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Decode and save image
         run: |
-          # Aquí iría el código para procesar uploads
-          echo "Upload functionality would go here"
+          # Crear directorio del álbum si existe
+          if [ -n "${{ github.event.inputs.album }}" ]; then
+            mkdir -p "${{ github.event.inputs.album }}"
+          fi
+          
+          # Decodificar Base64 y guardar
+          echo "${{ github.event.inputs.image_data }}" | base64 --decode > "${{ github.event.inputs.filename }}"
+          
+          # Mover a álbum si corresponde
+          if [ -n "${{ github.event.inputs.album }}" ]; then
+            mv "${{ github.event.inputs.filename }}" "${{ github.event.inputs.album }}/"
+          fi
+          
+      - name: Commit and push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Upload: ${{ github.event.inputs.filename }}"
+          git push
