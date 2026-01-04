@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CatGitHub FUNCIONAL - Host de Imágenes con GitHub</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Mantén TODO el CSS anterior que te mandé */
+        /* Solo agrega esto al final: */
+        .backend-status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+        }
+        .backend-online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .backend-offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <!-- Mantén TODO el HTML anterior -->
+    
+    <script>
+        // CONFIGURACIÓN - CAMBIA ESTO
+        const BACKEND_URL = 'http://localhost:3000'; // Cambia si despliegas en otro lugar
+        
+        // Variables globales
+        let currentAlbum = '';
+        let albums = [];
+        let mediaFiles = [];
+        
+        // Verificar conexión con backend
+        async function checkBackend() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/albums`);
+                if (response.ok) {
+                    document.getElementById('backendStatus').className = 'backend-status backend-online';
+                    document.getElementById('backendStatus').innerHTML = '<i class="fas fa-check-circle"></i> Backend conectado';
+                    return true;
+                }
+            } catch (error) {
+                document.getElementById('backendStatus').className = 'backend-status backend-offline';
+                document.getElementById('backendStatus').innerHTML = '<i class="fas fa-times-circle"></i> Backend desconectado. Usando modo simulación.';
+            }
+            return false;
+        }
+        
+        // Cargar álbumes REALES desde GitHub
+        async function loadRealAlbums() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/albums`);
+                const data = await response.json();
+                
+                albums = data.map(album => ({
+                    id: album.name,
+                    name: album.name,
+                    count: 0, // Se podría calcular
+                    thumbnail: '',
+                    date: new Date().toISOString(),
+                    real: true
+                }));
+                
+                updateAlbumSelect();
+                displayAlbums();
+                return true;
+            } catch (error) {
+                console.error('Error cargando álbumes:', error);
+                return false;
+            }
+        }
+        
+        // Crear álbum REAL en GitHub
+        async function createRealAlbum(albumName) {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/album`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: albumName })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(`Álbum "${albumName}" creado en GitHub`, 'success');
+                    loadRealAlbums();
+                    return true;
+                }
+            } catch (error) {
+                console.error('Error creando álbum:', error);
+                showNotification('Error creando álbum', 'error');
+            }
+            return false;
+        }
+        
+        // Subir archivo REAL a GitHub
+        async function uploadRealFile(file, album = '') {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('album', album);
+            formData.append('filename', `img_${Date.now()}_${file.name}`);
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showNotification(`${file.name} subido a GitHub`, 'success');
+                    
+                    // Agregar a la lista local
+                    mediaFiles.push({
+                        id: Date.now(),
+                        name: file.name,
+                        url: data.url,
+                        type: file.type,
+                        album: album,
+                        date: new Date().toISOString()
+                    });
+                    
+                    return data.url;
+                }
+            } catch (error) {
+                console.error('Error subiendo archivo:', error);
+                showNotification('Error subiendo archivo', 'error');
+            }
+            return null;
+        }
+        
+        // Cargar archivos REALES desde un álbum
+        async function loadAlbumFiles(albumName) {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/files?path=${albumName}`);
+                const data = await response.json();
+                
+                const files = data.filter(item => item.type === 'file' && 
+                    (item.name.match(/\.(jpg|jpeg|png|gif|mp4|webm)$/i)));
+                
+                return files.map(file => ({
+                    id: file.sha,
+                    name: file.name,
+                    url: file.download_url,
+                    type: file.name.match(/\.(mp4|webm)$/i) ? 'video' : 'image',
+                    album: albumName,
+                    date: 'Cargado desde GitHub'
+                }));
+            } catch (error) {
+                console.error('Error cargando archivos:', error);
+                return [];
+            }
+        }
+        
+        // Función principal de subida (usa real o simulación)
+        async function handleFileUpload(files) {
+            const backendOnline = await checkBackend();
+            
+            if (!backendOnline) {
+                // Modo simulación
+                showNotification('Usando modo simulación (backend offline)', 'info');
+                return uploadSimulated(files);
+            }
+            
+            // Modo REAL con GitHub
+            for (const file of files) {
+                updateProgress(file, 0);
+                const url = await uploadRealFile(file, currentAlbum);
+                if (url) {
+                    showGeneratedLink(url, file.name);
+                }
+                updateProgress(file, 100);
+            }
+        }
+        
+        // Función para crear álbum (real o simulación)
+        async function handleCreateAlbum(albumName) {
+            const backendOnline = await checkBackend();
+            
+            if (backendOnline) {
+                return await createRealAlbum(albumName);
+            } else {
+                // Modo simulación
+                const albumId = 'album_' + Date.now();
+                albums.push({
+                    id: albumId,
+                    name: albumName,
+                    count: 0,
+                    thumbnail: '',
+                    date: new Date().toISOString(),
+                    real: false
+                });
+                updateAlbumSelect();
+                showNotification(`Álbum "${albumName}" creado (simulación)`, 'success');
+                return true;
+            }
+        }
+        
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Verificar backend
+            await checkBackend();
+            
+            // Cargar álbumes reales si hay conexión
+            const backendOnline = await checkBackend();
+            if (backendOnline) {
+                await loadRealAlbums();
+                showNotification('Conectado a GitHub. Álbumes cargados.', 'success');
+            }
+            
+            // Configurar event listeners (mantén los anteriores)
+            setupEventListeners();
+        });
+        
+        // Agrega este div en el sidebar después del github-status:
+        // <div class="backend-status" id="backendStatus">Verificando conexión...</div>
+    </script>
+</body>
+</html>
