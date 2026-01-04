@@ -1,0 +1,15 @@
+name: Upload Image to GitHub
+
+on:
+  repository_dispatch:
+    types: [upload-request]
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Upload file
+        run: |
+          # Aquí iría el código para procesar uploads
+          echo "Upload functionality would go here"
